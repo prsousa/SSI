@@ -2,6 +2,7 @@ package Servidor;
 
 import java.io.IOException;
 import java.net.Socket;
+import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.util.logging.Level;
@@ -10,19 +11,22 @@ import javax.crypto.Cipher;
 import javax.crypto.CipherInputStream;
 import javax.crypto.NoSuchPaddingException;
 import javax.crypto.SecretKey;
+import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
 public class HandleClient implements Runnable {
     private final CipherInputStream cis;
     private final int order;
 
-    HandleClient(Socket soc, int order, Server server) throws IOException, NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException {        
+    HandleClient(Socket soc, int order, Server server) throws IOException, NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException {        
         byte[] keyBytes = "0123456789ABCDEF".getBytes();
-        SecretKey key = new SecretKeySpec(keyBytes, 0, keyBytes.length, "RC4");
+        SecretKey key = new SecretKeySpec(keyBytes, 0, keyBytes.length, "AES");
         
-        Cipher cipher = Cipher.getInstance("RC4");
+        byte[] iv = new byte[16];
+        soc.getInputStream().read(iv); // Receive plain IV array
         
-        cipher.init(Cipher.DECRYPT_MODE, key);
+        Cipher cipher = Cipher.getInstance("AES/CBC/NoPadding");
+        cipher.init(Cipher.DECRYPT_MODE, key, new IvParameterSpec(iv));
         
         this.cis = new CipherInputStream(soc.getInputStream(), cipher);
         this.order = order;
