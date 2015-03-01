@@ -33,8 +33,9 @@ public class Client {
             soc.getOutputStream().write(iv); // Sends plain IV array
             
             // CBC - Cipher Block Chaining
+            // PKCS5Padding - Adds Padding to complete the block (?)
             // Blocks until buffer is complete
-            Cipher cipher = Cipher.getInstance("AES/CBC/NoPadding");
+            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
             cipher.init(Cipher.ENCRYPT_MODE, key, new IvParameterSpec(iv));
             
             CipherOutputStream cos = new CipherOutputStream(soc.getOutputStream(), cipher);
