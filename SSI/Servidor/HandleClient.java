@@ -25,7 +25,7 @@ public class HandleClient implements Runnable {
         byte[] iv = new byte[16];
         soc.getInputStream().read(iv); // Receive plain IV array
         
-        Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+        Cipher cipher = Cipher.getInstance("AES/CBC/NoPadding");
         cipher.init(Cipher.DECRYPT_MODE, key, new IvParameterSpec(iv));
         
         this.cis = new CipherInputStream(soc.getInputStream(), cipher);
