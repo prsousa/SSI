@@ -32,10 +32,10 @@ public class Client {
             new Random().nextBytes(iv);
             soc.getOutputStream().write(iv); // Sends plain IV array
             
-            // CFB8 - Cipher Feedback
-            // PKCS5Padding - Insert padding
-            // Only sends datagram when 8 bytes block is completed
-            Cipher cipher = Cipher.getInstance("AES/CFB8/PKCS5Padding");
+            // CFB - Cipher Feedback
+            // NoPadding - Don't insert padding
+            // Only sends datagram when block is completed - 16 bytes
+            Cipher cipher = Cipher.getInstance("AES/CFB/NoPadding");
             cipher.init(Cipher.ENCRYPT_MODE, key, new IvParameterSpec(iv));
 
             CipherOutputStream cos = new CipherOutputStream(soc.getOutputStream(), cipher);
