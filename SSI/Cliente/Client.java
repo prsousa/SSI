@@ -23,13 +23,14 @@ import java.util.logging.Logger;
 import javax.crypto.Cipher;
 import javax.crypto.CipherOutputStream;
 import javax.crypto.KeyAgreement;
+import javax.crypto.KeyGenerator;
+import javax.crypto.Mac;
 import javax.crypto.NoSuchPaddingException;
 import javax.crypto.SecretKey;
 import javax.crypto.ShortBufferException;
 import javax.crypto.spec.DHParameterSpec;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
-import static sun.security.pkcs11.wrapper.Functions.toHexString;
 
 public class Client {
 
@@ -66,7 +67,7 @@ public class Client {
 
     public static byte[][] derivateMasterKey(byte[] masterKey) throws NoSuchAlgorithmException {
         byte[][] res = new byte[2][];
-        
+
         MessageDigest messageDigest = MessageDigest.getInstance("SHA-256");
         messageDigest.update(masterKey);
         messageDigest.update("1".getBytes());
@@ -75,7 +76,7 @@ public class Client {
         messageDigest.update(masterKey);
         messageDigest.update("2".getBytes());
         res[1] = messageDigest.digest(); // k2
-        
+
         return res;
     }
 
@@ -102,10 +103,24 @@ public class Client {
             cipher.init(Cipher.ENCRYPT_MODE, key, new IvParameterSpec(iv));
 
             CipherOutputStream cos = new CipherOutputStream(soc.getOutputStream(), cipher);
+            
+            
+            SecretKey keyMAC = new SecretKeySpec(derivKeys[1], 0, 16, "HmacMD5");
+            Mac mac = Mac.getInstance(keyMAC.getAlgorithm());
+            mac.init(keyMAC);
 
             while (soc.isConnected()) {
                 int readed = br.read();
+                if (readed == -1) {
+                    break;
+                }
+
                 cos.write(readed);
+                
+                mac.update((byte) readed);
+                byte[] digest = mac.doFinal(); // computa o MAC
+                cos.write(digest); // envia o MAC
+                
                 cos.flush();
             }
 

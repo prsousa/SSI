@@ -19,6 +19,7 @@ import java.util.logging.Logger;
 import javax.crypto.Cipher;
 import javax.crypto.CipherInputStream;
 import javax.crypto.KeyAgreement;
+import javax.crypto.Mac;
 import javax.crypto.NoSuchPaddingException;
 import javax.crypto.SecretKey;
 import javax.crypto.ShortBufferException;
@@ -26,12 +27,12 @@ import javax.crypto.interfaces.DHPublicKey;
 import javax.crypto.spec.DHParameterSpec;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
-import static sun.security.pkcs11.wrapper.Functions.toHexString;
 
 public class HandleClient implements Runnable {
 
     private final CipherInputStream cis;
     private final int order;
+    private final Mac mac;
 
     // Acordo de Chaves Diffie-Hellman
     static byte[] getSharedSecret(Socket soc) throws IOException, NoSuchAlgorithmException, InvalidKeySpecException, InvalidAlgorithmParameterException, InvalidKeyException, IllegalStateException, ShortBufferException {
@@ -61,7 +62,7 @@ public class HandleClient implements Runnable {
 
         return sharedSecret;
     }
-
+    
     public static byte[][] derivateMasterKey(byte[] masterKey) throws NoSuchAlgorithmException {
         byte[][] res = new byte[2][];
 
@@ -76,7 +77,21 @@ public class HandleClient implements Runnable {
 
         return res;
     }
-
+    
+    public static boolean validateMacs(byte[] a, byte[] b) {
+        if(a.length != b.length) {
+            return false;
+        }
+        
+        for(int i = 0; i < a.length; i++) {
+            if(a[i] != b[i]) {
+                return false;
+            }
+        }
+        
+        return true;
+    }
+    
     HandleClient(Socket soc, int order, Server server) throws IOException, NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException, InvalidKeySpecException, IllegalStateException, ShortBufferException {
         byte[] masterKey = getSharedSecret(soc);
         byte[][] derivKeys = derivateMasterKey(masterKey);
@@ -91,15 +106,29 @@ public class HandleClient implements Runnable {
         cipher.init(Cipher.DECRYPT_MODE, key, new IvParameterSpec(iv));
 
         this.cis = new CipherInputStream(soc.getInputStream(), cipher);
+
+        SecretKey keyMAC = new SecretKeySpec(derivKeys[1], 0, 16, "HmacMD5");
+        mac = Mac.getInstance(keyMAC.getAlgorithm());
+        mac.init(keyMAC);
+
         this.order = order;
     }
 
     @Override
     public void run() {
         try {
-            int test;
-            while ((test = cis.read()) != -1) {
-                System.out.print((char) test);
+            int msg;
+            byte[] macReceived = new byte[16];
+            while ((msg = cis.read()) != -1) {
+                System.out.print((char) msg);
+                
+                cis.read(macReceived); // recebe o MAC da mensagem
+                
+                mac.update((byte) msg);
+                byte[] macComputed = mac.doFinal(); // computa o MAC da mensagem recebida
+                if( !validateMacs(macComputed, macReceived) ) {
+                    System.err.println("Mensagem Corrompida"); // se os MACs não coincidirem houve quebra da integridade
+                }
             }
 
             System.out.println("=[" + this.order + "]=");
