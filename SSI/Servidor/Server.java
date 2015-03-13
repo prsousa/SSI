@@ -14,8 +14,6 @@ import javax.crypto.NoSuchPaddingException;
 import javax.crypto.ShortBufferException;
 
 public class Server {
-
-    public static int PORT = 4567;
     private final AtomicInteger order;
 
     public Server() {
@@ -25,7 +23,7 @@ public class Server {
     public static void main(String[] args) {
         Server server = new Server();
         try {
-            ServerSocket sc = new ServerSocket(PORT);
+            ServerSocket sc = new ServerSocket(4567);
 
             while (true) {
                 Socket s = sc.accept();

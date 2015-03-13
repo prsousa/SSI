@@ -1,66 +1,49 @@
 package Servidor;
 
-import static Cliente.Client.derivateMasterKey;
-import static Cliente.Client.getSharedSecret;
+import Common.DiffieHellman;
 import java.io.IOException;
+import java.io.InputStream;
+import java.math.BigInteger;
 import java.net.Socket;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
-import java.security.KeyFactory;
-import java.security.KeyPair;
-import java.security.KeyPairGenerator;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.security.PublicKey;
 import java.security.spec.InvalidKeySpecException;
-import java.security.spec.X509EncodedKeySpec;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
-import javax.crypto.CipherInputStream;
-import javax.crypto.KeyAgreement;
+import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.Mac;
 import javax.crypto.NoSuchPaddingException;
 import javax.crypto.SecretKey;
 import javax.crypto.ShortBufferException;
-import javax.crypto.interfaces.DHPublicKey;
-import javax.crypto.spec.DHParameterSpec;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
 public class HandleClient implements Runnable {
 
-    private final CipherInputStream cis;
     private final int order;
-    private final Mac mac;
-
+    private final Mac hmac;
+    private final InputStream is;
+    private final Cipher cipher;
+    
+    private final static BigInteger n = new BigInteger("99494096650139337106186933977618513974146274831566768179581759037259788798151499814653951492724365471316253651463342255785311748602922458795201382445323499931625451272600173180136123245441204133515800495917242011863558721723303661523372572477211620144038809673692512025566673746993593384600667047373692203583");
+    private final static BigInteger g = new BigInteger("44157404837960328768872680677686802650999163226766694797650810379076416463147265401084491113667624054557335394761604876882446924929840681990106974314935015501571333024773172440352475358750668213444607353872754650805031912866692119819377041901642732455911509867728218394542745330014071040326856846990119719675");
+    
     // Acordo de Chaves Diffie-Hellman
     static byte[] getSharedSecret(Socket soc) throws IOException, NoSuchAlgorithmException, InvalidKeySpecException, InvalidAlgorithmParameterException, InvalidKeyException, IllegalStateException, ShortBufferException {
-        byte[] clientPubKeyEnc = new byte[426];
-        soc.getInputStream().read(clientPubKeyEnc);
-
-        KeyFactory keyFac = KeyFactory.getInstance("DH");
-        X509EncodedKeySpec x509KeySpec = new X509EncodedKeySpec(clientPubKeyEnc);
-        PublicKey clientPubKey = keyFac.generatePublic(x509KeySpec);
-
-        DHParameterSpec dhParamSpec = ((DHPublicKey) clientPubKey).getParams();
-
-        KeyPairGenerator keypairGen = KeyPairGenerator.getInstance("DH");
-        keypairGen.initialize(dhParamSpec);
-        KeyPair keyPair = keypairGen.generateKeyPair();
-
-        KeyAgreement keyAgreement = KeyAgreement.getInstance("DH");
-        keyAgreement.init(keyPair.getPrivate());
-
-        byte[] publicKeyEnc = keyPair.getPublic().getEncoded();
-        soc.getOutputStream().write(publicKeyEnc);
-
-        keyAgreement.doPhase(clientPubKey, true);
-
-        byte[] sharedSecret = new byte[425];
-        keyAgreement.generateSecret(sharedSecret, 0);
-
-        return sharedSecret;
+        DiffieHellman dh = new DiffieHellman(HandleClient.n, HandleClient.g);
+        BigInteger publicKey = dh.getPublicKey();
+        
+        soc.getOutputStream().write(publicKey.toByteArray());
+        byte[] publicKeyServerBytes = new byte[128];
+        soc.getInputStream().read(publicKeyServerBytes);
+                
+        BigInteger publicClientKey = new BigInteger(publicKeyServerBytes);
+        
+        return dh.getPrivateKey(publicClientKey).toByteArray();
     }
     
     public static byte[][] derivateMasterKey(byte[] masterKey) throws NoSuchAlgorithmException {
@@ -93,6 +76,8 @@ public class HandleClient implements Runnable {
     }
     
     HandleClient(Socket soc, int order, Server server) throws IOException, NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException, InvalidKeySpecException, IllegalStateException, ShortBufferException {
+        is = soc.getInputStream();
+        
         byte[] masterKey = getSharedSecret(soc);
         byte[][] derivKeys = derivateMasterKey(masterKey);
 
@@ -100,16 +85,14 @@ public class HandleClient implements Runnable {
         SecretKey key = new SecretKeySpec(keyBytes, 0, 16, "AES"); // apenas utiliza os primeiros 16 bytes da chave
 
         byte[] iv = new byte[16];
-        soc.getInputStream().read(iv); // Receive plain IV array
-
-        Cipher cipher = Cipher.getInstance("AES/CTR/NoPadding");
+        is.read(iv); // Receive plain IV array
+        
+        cipher = Cipher.getInstance("AES/CTR/NoPadding");
         cipher.init(Cipher.DECRYPT_MODE, key, new IvParameterSpec(iv));
-
-        this.cis = new CipherInputStream(soc.getInputStream(), cipher);
-
+        
         SecretKey keyMAC = new SecretKeySpec(derivKeys[1], 0, 16, "HmacMD5");
-        mac = Mac.getInstance(keyMAC.getAlgorithm());
-        mac.init(keyMAC);
+        hmac = Mac.getInstance(keyMAC.getAlgorithm());
+        hmac.init(keyMAC);
 
         this.order = order;
     }
@@ -117,22 +100,30 @@ public class HandleClient implements Runnable {
     @Override
     public void run() {
         try {
-            int msg;
+            byte[] buff = new byte[1];
+            
+            int cifra;
             byte[] macReceived = new byte[16];
-            while ((msg = cis.read()) != -1) {
-                System.out.print((char) msg);
+            while ((cifra = is.read()) != -1) {
+
+                is.read(macReceived); // recebe o MAC da mensagem
                 
-                cis.read(macReceived); // recebe o MAC da mensagem
+                hmac.update((byte) cifra);
+                byte[] macComputed = hmac.doFinal(); // computa o MAC da cifra recebida
                 
-                mac.update((byte) msg);
-                byte[] macComputed = mac.doFinal(); // computa o MAC da mensagem recebida
-                if( !validateMacs(macComputed, macReceived) ) {
+                if( validateMacs(macComputed, macReceived) ) {
+                    buff[0] = (byte) cifra;
+                    byte[] msg = cipher.doFinal( buff );
+                    
+                    System.out.print((char) msg[0]);
+                    
+                } else {
                     System.err.println("Mensagem Corrompida"); // se os MACs não coincidirem houve quebra da integridade
                 }
             }
-
+            
             System.out.println("=[" + this.order + "]=");
-        } catch (IOException ex) {
+        } catch (IOException | IllegalBlockSizeException | BadPaddingException ex) {
             Logger.getLogger(HandleClient.class.getName()).log(Level.SEVERE, null, ex);
         }
     }
