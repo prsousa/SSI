@@ -18,7 +18,7 @@ public class DiffieHellman {
     private final BigInteger  g;
     
     private final BigInteger random;
-    private final BigInteger publicKey;
+    private final BigInteger publicParam;
     
     
     public DiffieHellman(BigInteger n, BigInteger  g) {
@@ -26,14 +26,15 @@ public class DiffieHellman {
         this.g = g;
         
         this.random = new BigInteger(1024, new Random());
-        this.publicKey = g.modPow(this.random, n);
+        this.publicParam = g.modPow(this.random, n);
     }
     
-    public BigInteger getPublicKey() {
-        return this.publicKey;
+    public BigInteger getPublicParam() {
+        return this.publicParam;
     }
     
-    public BigInteger getPrivateKey(BigInteger external) {
+    
+    public BigInteger getAccordedSecretKey(BigInteger external) {
         return external.modPow(random, n);
     }
 }
