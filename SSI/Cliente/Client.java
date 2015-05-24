@@ -3,6 +3,8 @@ package Cliente;
 import Common.DiffieHellman;
 import Common.Utils;
 import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.ObjectInputStream;
@@ -11,11 +13,16 @@ import java.math.BigInteger;
 import java.net.Socket;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
+import java.security.KeyFactory;
 import java.security.NoSuchAlgorithmException;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.SignatureException;
+import java.security.cert.CertificateException;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
 import java.security.spec.InvalidKeySpecException;
+import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Random;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -39,23 +46,34 @@ public class Client {
 
     private final Cipher enc;
     private final Mac hmac;
-
     private final byte[] masterKey;
-
     private final PrivateKey clientPrivateKey;
-//    private final PublicKey clientPublicKey;
     private final PublicKey serverPublicKey;
 
-    public Client(String host, int port) throws IOException, NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException, ClassNotFoundException, InvalidKeySpecException, IllegalBlockSizeException, BadPaddingException, SignatureException {
+    public Client(String host, int port, String caFilePath, String privateKeyFile, String certPathServer) throws IOException, NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException, ClassNotFoundException, InvalidKeySpecException, IllegalBlockSizeException, BadPaddingException, SignatureException, CertificateException {
         Socket soc = new Socket(host, port);
         oos = new ObjectOutputStream(soc.getOutputStream());
         ois = new ObjectInputStream(soc.getInputStream());
-        
-        // Chaves previamente criadas com os nomes "server" e "client" através da
-        // classe Generator do package RSAKeysGenerator
-        this.clientPrivateKey = (PrivateKey) Utils.loadKeyFile("client_pri.obj");
-//        this.clientPublicKey = (PublicKey) Utils.loadKeyFile("client_pub.obj");
-        this.serverPublicKey = (PublicKey) Utils.loadKeyFile("server_pub.obj");
+
+        File certPathFileServer = new File(certPathServer);
+        FileInputStream fin1 = new FileInputStream(certPathFileServer);
+        CertificateFactory f = CertificateFactory.getInstance("X.509");
+        X509Certificate certificate = (X509Certificate) f.generateCertificate(fin1);
+        if (!Utils.validateCert(caFilePath, certPathServer)) {
+            System.err.println("Certificados inválidos");
+            System.exit(-1);
+        }
+        PublicKey publicKeyServer = certificate.getPublicKey();
+
+        byte[] encodedKey = new byte[2048];
+        FileInputStream fis = new FileInputStream(privateKeyFile);
+        fis.read(encodedKey);
+
+        PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(encodedKey);
+        KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+        PrivateKey privKey = (PrivateKey) keyFactory.generatePrivate(keySpec);
+        this.clientPrivateKey = privKey;
+        this.serverPublicKey = publicKeyServer;
 
         // Acordo de Chaves Diffie-Hellman
         DiffieHellman dh = new DiffieHellman(Client.n, Client.g);
@@ -113,9 +131,9 @@ public class Client {
         oos.flush();
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws CertificateException {
         try {
-            Client c = new Client("localhost", 4567);
+            Client c = new Client("localhost", 4567, "cacert.pem", "client_key.pk8", "server_cert.pem");
             System.out.println("Ligado ao Servidor com sucesso");
 
             BufferedReader br = new BufferedReader(new InputStreamReader(System.in));

@@ -8,6 +8,7 @@ import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
 import java.security.SignatureException;
+import java.security.cert.CertificateException;
 import java.security.spec.InvalidKeySpecException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
@@ -24,14 +25,14 @@ public class Server {
         this.order = new AtomicInteger();
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws CertificateException {
         Server server = new Server();
         try {
             ServerSocket sc = new ServerSocket(4567);
 
             while (true) {
                 Socket s = sc.accept();
-                HandleClient client = new HandleClient(s, server.order.incrementAndGet(), server);
+                HandleClient client = new HandleClient(s, server.order.incrementAndGet(), server, "cacert.pem", "server_key.pk8", "client_cert.pem");
                 new Thread(client).start();
             }
 
